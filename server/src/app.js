@@ -27,10 +27,20 @@ const distPath = path.join(__dirname2, "..", "..", "client", "dist");
 console.log("[Static] distPath resolved to:", distPath, "| exists:", fs.existsSync(distPath));
 
 // ── Serve static frontend assets FIRST (before CORS/helmet) ───────────────────
-// This ensures /assets/*.js and /assets/*.css are served correctly with proper
-// MIME types without interference from middleware like helmet or CORS.
+// Explicit setHeaders ensures correct Content-Type headers for .js and .css files,
+// which browsers require to execute/apply them (especially for type="module" scripts).
 if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
+  app.use(
+    express.static(distPath, {
+      setHeaders(res, filePath) {
+        if (filePath.endsWith(".js")) {
+          res.setHeader("Content-Type", "application/javascript; charset=utf-8");
+        } else if (filePath.endsWith(".css")) {
+          res.setHeader("Content-Type", "text/css; charset=utf-8");
+        }
+      },
+    })
+  );
 } else {
   console.warn("[Static] Warning: client/dist not found! Frontend will not be served.");
 }
