@@ -29,9 +29,12 @@ console.log("[Static] distPath resolved to:", distPath, "| exists:", fs.existsSy
 // ── Serve static frontend assets FIRST (before CORS/helmet) ───────────────────
 // Explicit setHeaders ensures correct Content-Type headers for .js and .css files,
 // which browsers require to execute/apply them (especially for type="module" scripts).
+// etag and lastModified are disabled to prevent 304 responses which bypass setHeaders.
 if (fs.existsSync(distPath)) {
   app.use(
     express.static(distPath, {
+      etag: false,
+      lastModified: false,
       setHeaders(res, filePath) {
         if (filePath.endsWith(".js")) {
           res.setHeader("Content-Type", "application/javascript; charset=utf-8");
