@@ -7,8 +7,6 @@ import helmet from "helmet";
 import morgan from "morgan";
 
 import { globalLimiter } from "./middlewares/rateLimiters.js";
-
-// Routes
 import publicRoutes from "./routes/publicRoutes.js";
 import authRoutes from "./routes/authRoutes.js";
 import userRoutes from "./routes/userRoutes.js";
@@ -19,69 +17,36 @@ import staffRoutes from "./routes/staffRoutes.js";
 const app = express();
 const isProduction = process.env.NODE_ENV === "production";
 
-// ── Resolve client/dist path ──────────────────────────────────────────────────
-const __filename2 = fileURLToPath(import.meta.url);
-const __dirname2 = path.dirname(__filename2);
-const distPath = path.join(__dirname2, "..", "..", "client", "dist");
-
-console.log("[Static] distPath resolved to:", distPath, "| exists:", fs.existsSync(distPath));
-
-// ── Serve static frontend assets FIRST (before CORS/helmet) ───────────────────
-// Explicit setHeaders ensures correct Content-Type headers for .js and .css files,
-// which browsers require to execute/apply them (especially for type="module" scripts).
-// etag and lastModified are disabled to prevent 304 responses which bypass setHeaders.
-if (fs.existsSync(distPath)) {
-  app.use(
-    express.static(distPath, {
-      etag: false,
-      lastModified: false,
-      setHeaders(res, filePath) {
-        if (filePath.endsWith(".js")) {
-          res.setHeader("Content-Type", "application/javascript; charset=utf-8");
-        } else if (filePath.endsWith(".css")) {
-          res.setHeader("Content-Type", "text/css; charset=utf-8");
-        }
-      },
-    })
-  );
-} else {
-  console.warn("[Static] Warning: client/dist not found! Frontend will not be served.");
-}
-
-// ── Trust proxy ───────────────────────────────────────────────────────────────
-const trustProxy = String(process.env.TRUST_PROXY || (isProduction ? "true" : "false"))
-  .trim()
-  .toLowerCase();
+// ── Trust proxy (Render, Vercel, Nginx etc.) ──────────────────────────────────
+const trustProxy = String(process.env.TRUST_PROXY || (isProduction ? "true" : "false")).trim().toLowerCase();
 if (trustProxy === "true" || trustProxy === "1") {
   app.set("trust proxy", 1);
 }
 
-// ── Allowed CORS origins ──────────────────────────────────────────────────────
-const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173")
-  .split(",")
-  .map((value) => value.trim())
-  .filter(Boolean);
-
-// ── Security & CORS middleware ─────────────────────────────────────────────────
+// ── Security middleware ────────────────────────────────────────────────────────
 app.use(
   helmet({
     crossOriginResourcePolicy: false,
-    contentSecurityPolicy: false, // Disabled — lets self-hosted React JS/CSS load without CSP blocks
+    contentSecurityPolicy: false, // Disabled so self-hosted React JS/CSS bundles load
   })
 );
 
+// ── CORS ──────────────────────────────────────────────────────────────────────
+const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173")
+  .split(",")
+  .map((v) => v.trim())
+  .filter(Boolean);
+
 app.use(
   cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin)) {
-        callback(null, true);
-        return;
-      }
-      callback(new Error("Origin not allowed"));
+    origin(origin, cb) {
+      if (!origin || allowedOrigins.includes(origin)) return cb(null, true);
+      cb(new Error("Origin not allowed"));
     },
     credentials: true,
   })
 );
+
 app.use(express.json({ limit: "1mb" }));
 app.use(morgan("dev"));
 app.use(globalLimiter);
@@ -94,29 +59,43 @@ app.use("/api/bookings", bookingRoutes);
 app.use("/api/admin", adminRoutes);
 app.use("/api/staff", staffRoutes);
 
-// ── SPA Catch-all: serve index.html for all non-API, non-asset routes ────────
+// ── Serve Vite-built frontend (production only) ───────────────────────────────
+// Resolves to: <repo-root>/client/dist
+const __filename2 = fileURLToPath(import.meta.url);
+const __dirname2 = path.dirname(__filename2);
+const distPath = path.resolve(__dirname2, "..", "..", "client", "dist");
+const indexHtml = path.join(distPath, "index.html");
+
+console.log("[Static] distPath:", distPath, "| exists:", fs.existsSync(distPath));
+
 if (fs.existsSync(distPath)) {
-  app.get(/.*/, (req, res, next) => {
-    // Skip API routes - handled by their own routers
-    if (req.path.startsWith("/api/")) return next();
-    // Skip /assets/ - these are static files already handled by express.static above
-    // Without this, express would serve index.html instead of the JS/CSS bundles!
-    if (req.path.startsWith("/assets/")) return next();
-    const indexFile = path.join(distPath, "index.html");
-    if (fs.existsSync(indexFile)) {
-      res.sendFile(indexFile);
+  // Serve static assets (JS, CSS, images, etc.) — express.static handles MIME types
+  app.use(express.static(distPath, { index: false }));
+
+  // SPA fallback — serve index.html for all non-API, non-asset GET requests
+  // index: false above prevents express.static from auto-serving index.html,
+  // so we can handle the fallback ourselves here with the correct exclusions.
+  app.get("*", (req, res, next) => {
+    // Let API requests fall through to the 404 handler
+    if (req.path.startsWith("/api")) return next();
+    // Let any unmatched asset requests fall through (returns 404, not index.html)
+    if (/\.\w+$/.test(req.path)) return next();
+    // All other paths (/, /admin, /staff, /user/*, etc.) → serve the React app
+    if (fs.existsSync(indexHtml)) {
+      res.sendFile(indexHtml);
     } else {
       next();
     }
   });
+} else {
+  console.warn("[Static] client/dist not found — frontend will not be served.");
 }
 
 // ── Global error handler ──────────────────────────────────────────────────────
 app.use((err, _req, res, _next) => {
   const status = err.status || 500;
-  console.error("[Error Handler]", err.message, err.stack);
-  const message = status >= 500 ? "Internal server error" : err.message;
-  res.status(status).json({ error: message });
+  console.error("[Error]", status, err.message);
+  res.status(status).json({ error: status >= 500 ? "Internal server error" : err.message });
 });
 
 export default app;
