@@ -75,7 +75,7 @@ if (fs.existsSync(distPath)) {
   // SPA fallback — serve index.html for all non-API, non-asset GET requests
   // index: false above prevents express.static from auto-serving index.html,
   // so we can handle the fallback ourselves here with the correct exclusions.
-  app.get("*", (req, res, next) => {
+  app.get(/(.*)/, (req, res, next) => {
     // Let API requests fall through to the 404 handler
     if (req.path.startsWith("/api")) return next();
     // Let any unmatched asset requests fall through (returns 404, not index.html)
