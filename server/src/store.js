@@ -5,12 +5,12 @@ import { normalizeEmail } from "./utils.js";
 
 const { Pool } = pg;
 
-const pool = new Pool({
+export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
   ssl: { rejectUnauthorized: false },
 });
 
-function rowToUser(r) {
+export function rowToUser(r) {
   if (!r) return null;
   return { id: r.id, name: r.name, email: r.email, passwordHash: r.password_hash, role: r.role, status: r.status, phone: r.phone || "", roleTitle: r.role_title || "", staffId: r.staff_id || null, pendingId: r.pending_id || null };
 }
@@ -20,7 +20,21 @@ function rowToService(r) {
 }
 function rowToStaff(r) {
   if (!r) return null;
-  return { id: r.id, name: r.name, role: r.role, email: r.email, i: r.initials || "", c: r.color || "#E63946", services: r.services || [], avail: r.availability || [true,true,true,true,true,false,false], active: r.active };
+  return {
+    id: r.id,
+    name: r.name,
+    role: r.role,
+    email: r.email,
+    i: r.initials || "",
+    c: r.color || "#E63946",
+    services: r.services || [],
+    avail: r.availability || [true,true,true,true,true,false,false],
+    active: r.active,
+    profileImage: r.profile_image || "",
+    experience: r.experience || "",
+    totalWorkDone: r.total_work_done || 0,
+    bio: r.bio || "",
+  };
 }
 function rowToPending(r) {
   if (!r) return null;
@@ -98,20 +112,62 @@ export async function initStore() {
 }
 
 export async function readData() {
-  const [u,sv,st,p,b] = await Promise.all([
-    pool.query(`SELECT * FROM users`),
+  const [sv,st,p,b] = await Promise.all([
     pool.query(`SELECT * FROM services ORDER BY id`),
     pool.query(`SELECT * FROM staff ORDER BY id`),
     pool.query(`SELECT * FROM pending_staff`),
-    pool.query(`SELECT * FROM bookings ORDER BY created_at DESC`),
+    pool.query(`SELECT * FROM bookings ORDER BY created_at DESC LIMIT 100`), // Safeguard for initialization
   ]);
   return {
-    users: u.rows.map(rowToUser),
+    users: [], // Don't fetch all users
     services: sv.rows.map(rowToService),
     staff: st.rows.map(rowToStaff),
     pendingStaff: p.rows.map(rowToPending),
     bookings: b.rows.map(rowToBooking),
   };
+}
+
+export async function queryPaged(table, { page = 1, limit = 10, where = "", params = [], orderBy = "id DESC" } = {}) {
+  const offset = (page - 1) * limit;
+  const whereCl = where ? `WHERE ${where}` : "";
+  
+  const [countRes, dataRes] = await Promise.all([
+    pool.query(`SELECT COUNT(*) FROM ${table} ${whereCl}`, params),
+    pool.query(`SELECT * FROM ${table} ${whereCl} ORDER BY ${orderBy} LIMIT $${params.length + 1} OFFSET $${params.length + 2}`, [...params, limit, offset])
+  ]);
+
+  const total = parseInt(countRes.rows[0].count);
+  return {
+    data: dataRes.rows,
+    total,
+    pages: Math.ceil(total / limit),
+    currentPage: page
+  };
+}
+
+export async function getPagedBookings({ userId, staffName, page = 1, limit = 10 } = {}) {
+  let where = "";
+  let params = [];
+  if (userId) {
+    where = "user_id = $1";
+    params = [userId];
+  } else if (staffName) {
+    where = "staff_name = $1";
+    params = [staffName];
+  }
+
+  const res = await queryPaged("bookings", { page, limit, where, params, orderBy: "created_at DESC" });
+  return { ...res, data: res.data.map(rowToBooking) };
+}
+
+export async function getPagedStaff({ page = 1, limit = 10 } = {}) {
+  const res = await queryPaged("staff", { page, limit, orderBy: "id" });
+  return { ...res, data: res.data.map(rowToStaff) };
+}
+
+export async function getPagedUsers({ page = 1, limit = 10 } = {}) {
+  const res = await queryPaged("users", { page, limit, orderBy: "id" });
+  return { ...res, data: res.data.map(rowToUser) };
 }
 
 export async function updateData(mutator) {
@@ -140,8 +196,15 @@ export async function updateData(mutator) {
 
   if (JSON.stringify(data.staff) !== before.staff) {
     for (const s of data.staff) {
-      await pool.query(`INSERT INTO staff (id,name,role,email,initials,color,services,availability,active) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET name=$2,role=$3,email=$4,initials=$5,color=$6,services=$7,availability=$8,active=$9`,
-        [s.id,s.name,s.role,s.email,s.i||"",s.c||"#E63946",s.services||[],s.avail||[],s.active]);
+      await pool.query(
+        `INSERT INTO staff (id,name,role,email,initials,color,services,availability,active,profile_image,experience,total_work_done,bio)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (id) DO UPDATE SET
+           name=$2,role=$3,email=$4,initials=$5,color=$6,services=$7,availability=$8,active=$9,
+           profile_image=$10,experience=$11,total_work_done=$12,bio=$13`,
+        [s.id,s.name,s.role,s.email,s.i||"",s.c||"#E63946",s.services||[],s.avail||[],s.active,
+         s.profileImage||"",s.experience||"",s.totalWorkDone||0,s.bio||""]
+      );
     }
     const ids = data.staff.map(s=>s.id);
     if (ids.length > 0) await pool.query(`DELETE FROM staff WHERE id != ALL($1::int[])`, [ids]);
@@ -170,4 +233,10 @@ export async function updateData(mutator) {
 
 export function getDataFilePath() {
   return "PostgreSQL (Supabase)";
+}
+
+export async function getUserByEmail(email) {
+  const res = await pool.query(`SELECT * FROM users WHERE email = $1`, [email]);
+  if (res.rows.length === 0) return null;
+  return rowToUser(res.rows[0]);
 }

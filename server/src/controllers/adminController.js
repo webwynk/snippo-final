@@ -3,13 +3,29 @@ import { normalizeEmail, initials, pickColor } from "../utils.js";
 import { asyncHandler, httpError } from "../utils/errorHelpers.js";
 import { userByEmail } from "../utils/userHelpers.js";
 
-export const getAdminData = asyncHandler(async (_req, res) => {
-  const data = await readData();
+export const getAdminData = asyncHandler(async (req, res) => {
+  const tab = req.query.tab || "overview";
+  const page = parseInt(req.query.page || "1");
+  const limit = parseInt(req.query.limit || "10");
+
+  const data = await readData(); // Keep small data like services/pending in memory for now
+  
+  let pagedData = {};
+  if (tab === "bookings") {
+    pagedData = await getPagedBookings({ page, limit });
+  } else if (tab === "staff") {
+    pagedData = await getPagedStaff({ page, limit });
+  } else if (tab === "users") {
+    pagedData = await getPagedUsers({ page, limit });
+  }
+
   res.json({
     services: data.services,
     staff: data.staff,
-    bookings: data.bookings,
+    bookingsByTab: pagedData, // Send paged data if requested by tab
+    bookings: data.bookings, // Keep for backward compatibility or simple overview
     pendingStaff: data.pendingStaff,
+    ...pagedData
   });
 });
 

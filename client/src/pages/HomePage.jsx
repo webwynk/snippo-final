@@ -2,7 +2,7 @@ import { useState } from "react";
 import AuthModal from "../components/Shared/AuthModal";
 import BookingForm from "../components/Booking/BookingForm";
 
-export default function HomePage({ user, onUserAuth, onGoDash, services, staff, onCreateBooking, embedMode = false, embedHeader = null }) {
+export default function HomePage({ user, onUserAuth, onGoDash, services, staff, bookings, onCreateBooking, embedMode = false, embedHeader = null }) {
   const [showAuth, setShowAuth] = useState(false);
   const [authCb, setAuthCb] = useState(null);
 
@@ -38,6 +38,7 @@ export default function HomePage({ user, onUserAuth, onGoDash, services, staff, 
             onNeedAuth={handleNeedAuth}
             services={services}
             staff={staff}
+            bookings={bookings}
             onCreateBooking={onCreateBooking}
             onGoDash={onGoDash}
           />

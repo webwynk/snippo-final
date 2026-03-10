@@ -1,4 +1,4 @@
-export const LOGO_URL = "https://snippo.nextbusinesssolution.com/wp-content/uploads/2026/02/tmpd7p765pj-1.webp";
+export const LOGO_URL = "/logo.webp";
 
 export default function BrandLogo({ size = 30, className = "", onClick = null }) {
   return (
@@ -8,10 +8,10 @@ export default function BrandLogo({ size = 30, className = "", onClick = null })
       onClick={onClick || undefined}
     >
       <img
-        src={LOGO_URL}
-        alt="Logo"
+        src="/logo.webp"
+        alt="Snippo Entertainment"
         className="brand-logo-img"
-        style={{ height: size }}
+        style={{ height: size, width: "auto" }}
       />
     </span>
   );

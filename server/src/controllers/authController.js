@@ -1,4 +1,4 @@
-import { updateData, readData, nextCounter } from "../store.js";
+import { updateData, readData, nextCounter, getUserByEmail } from "../store.js";
 import { hashPassword, checkPassword, makeToken, sanitizeUser } from "../auth.js";
 import { normalizeEmail, initials, pickColor } from "../utils.js";
 import { httpError, asyncHandler } from "../utils/errorHelpers.js";
@@ -16,7 +16,7 @@ export const registerUser = asyncHandler(async (req, res) => {
 
   let createdUser;
   await updateData(async (data) => {
-    if (userByEmail(data, email)) {
+    if (await getUserByEmail(email)) {
       throw httpError(409, "An account with this email already exists");
     }
 
@@ -44,8 +44,7 @@ export const loginUser = asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password || "");
 
-  const data = await readData();
-  const user = userByEmail(data, email);
+  const user = await getUserByEmail(email);
   if (!user || user.role !== "user") {
     throw httpError(401, "Invalid credentials");
   }
@@ -60,8 +59,7 @@ export const loginAdmin = asyncHandler(async (req, res) => {
   const email = normalizeEmail(req.body?.email);
   const password = String(req.body?.password || "");
 
-  const data = await readData();
-  const user = userByEmail(data, email);
+  const user = await getUserByEmail(email);
   if (!user || user.role !== "admin") {
     throw httpError(401, "Invalid credentials");
   }
@@ -88,7 +86,7 @@ export const registerStaff = asyncHandler(async (req, res) => {
   let pendingEntry;
 
   await updateData(async (data) => {
-    if (userByEmail(data, email)) {
+    if (await getUserByEmail(email)) {
       throw httpError(409, "An account with this email already exists");
     }
 
@@ -138,7 +136,7 @@ export const loginStaff = asyncHandler(async (req, res) => {
   const password = String(req.body?.password || "");
 
   const data = await readData();
-  const user = userByEmail(data, email);
+  const user = await getUserByEmail(email);
   if (!user || user.role !== "staff") {
     throw httpError(401, "Invalid credentials");
   }

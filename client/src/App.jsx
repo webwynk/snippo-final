@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { SVCS, STAFF0, BKGS0 } from "./utils/data";
-import { MNS, DS, DAYS, TIMES, BOOKED, STEPS, COLORS, parsePath, buildPath, cal, fmtDur, initials } from "./utils/helpers";
+import { MNS, DS, DAYS, TIMES, STEPS, COLORS, parsePath, buildPath, cal, fmtDur, initials } from "./utils/helpers";
 import { apiRequest, readSession, saveSession, clearSession } from "./utils/api";
 import BrandLogo from "./components/Shared/BrandLogo";
 import Toasts, { useToast } from "./components/Shared/Toasts";
@@ -287,6 +287,7 @@ export default function App(){
             onGoDash={() => goUserDash("bookings")}
             services={services}
             staff={staff}
+            bookings={bookings}
             onCreateBooking={createBooking}
             embedMode={embedMode}
             embedHeader={embedMode?<PublicHeader

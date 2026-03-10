@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { STEPS, MNS, DS, TIMES, BOOKED, cal, fmtDur } from "../../utils/helpers";
+import { STEPS, MNS, DS, TIMES, cal, fmtDur } from "../../utils/helpers";
 import Progress from "../Shared/Progress";
+import StaffDetailsModal from "../Shared/StaffDetailsModal";
 
 function S1({ sel, onSel, services }) {
   return (
@@ -28,7 +29,7 @@ function S1({ sel, onSel, services }) {
   );
 }
 
-function S2({ sel, onSel, staff, svcId }) {
+function S2({ sel, onSel, staff, svcId, onDetails }) {
   const list = staff.filter(s => s.active && (!svcId || s.services.includes(svcId)));
   return (
     <div className="se">
@@ -39,28 +40,83 @@ function S2({ sel, onSel, staff, svcId }) {
           No specialists available for this service
         </div>
       ) : (
-        <div className="staffg">
+        <div className="staffg" style={{ gap: 16 }}>
           {list.map(s => (
-            <div key={s.id} className={`stcard ${sel?.id === s.id ? "sel" : ""}`} onClick={() => onSel(s)}>
-              <div
-                className="avt"
-                style={{
-                  width: 56,
-                  height: 56,
-                  margin: "0 auto 9px",
-                  background: `linear-gradient(135deg,${s.c},rgba(0,0,0,.3))`,
-                  fontSize: 18,
-                }}
+            <div 
+              key={s.id} 
+              className={`stcard ${sel?.id === s.id ? "sel" : ""}`} 
+              style={{ 
+                cursor: "default", 
+                padding: 16,
+                borderColor: sel?.id === s.id ? '#2ecc17' : 'var(--border)',
+                boxShadow: sel?.id === s.id ? '0 0 15px rgba(46, 204, 23, 0.2)' : 'none'
+              }}
+            >
+              <div 
+                onClick={() => onSel(s)} 
+                style={{ cursor: "pointer" }}
               >
-                {s.i}
-              </div>
-              <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 2 }}>{s.name}</div>
-              <div style={{ fontSize: 11, color: "var(--muted)" }}>{s.role}</div>
-              {sel?.id === s.id && (
-                <div style={{ marginTop: 7 }}>
-                  <span className="badge ba">Selected</span>
+                <div
+                  className="avt"
+                  style={{
+                    width: 64,
+                    height: 64,
+                    margin: "0 auto 12px",
+                    background: s.profileImage ? "transparent" : `linear-gradient(135deg,${s.c},rgba(0,0,0,.3))`,
+                    fontSize: 22,
+                    overflow: 'hidden'
+                  }}
+                >
+                  {s.profileImage ? (
+                    <img src={s.profileImage} alt={s.name} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  ) : (
+                    s.i
+                  )}
                 </div>
-              )}
+                <div style={{ fontWeight: 800, fontSize: 14, marginBottom: 2 }}>{s.name}</div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 8 }}>{s.role}</div>
+              </div>
+              
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+                {sel?.id === s.id ? (
+                  <div 
+                    style={{ 
+                      padding: '8px 0', 
+                      borderRadius: 8, 
+                      background: 'linear-gradient(135deg, #2ecc17, #24b011)',
+                      color: 'white',
+                      fontSize: 12,
+                      fontWeight: 700,
+                      textAlign: 'center',
+                      boxShadow: '0 2px 8px rgba(46, 204, 23, 0.3)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      height: 32
+                    }}
+                  >
+                    ✓ Selected
+                  </div>
+                ) : (
+                  <button 
+                    className="btn btn-p btn-sm" 
+                    style={{ fontSize: 11, padding: '6px 0', width: '100%', height: 32 }}
+                    onClick={() => onSel(s)}
+                  >
+                    Select
+                  </button>
+                )}
+                <button 
+                  className="btn btn-g btn-sm" 
+                  style={{ fontSize: 11, padding: '4px 0', width: '100%' }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDetails(s);
+                  }}
+                >
+                  Details
+                </button>
+              </div>
             </div>
           ))}
         </div>
@@ -69,12 +125,34 @@ function S2({ sel, onSel, staff, svcId }) {
   );
 }
 
-function S3({ selDate, selTime, onDate, onTime }) {
+function S3({ selDate, selTime, onDate, onTime, bookings, stf }) {
   const now = new Date();
   const [mn, setMn] = useState(now.getMonth());
   const [yr, setYr] = useState(now.getFullYear());
   const days = cal(yr, mn);
   const selStr = selDate ? `${selDate.getFullYear()}-${selDate.getMonth()}-${selDate.getDate()}` : "";
+
+  // Dynamic booking check
+  const busySlots = (bookings || [])
+    .filter(b => b.staffId === stf?.id && b.dt === (selDate ? selDate.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" }) : ""))
+    .map(b => b.t);
+
+  // Staff availability check (0=Sunday, 1=Monday, etc.)
+  // s.avail mapping: [Mon, Tue, Wed, Thu, Fri, Sat, Sun] 
+  // Date.getDay(): 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
+  const isOffDay = (date) => {
+    if (!stf || !stf.avail) return false;
+    const dayIndex = date.getDay(); // 0-6 (Sun-Sat)
+    const availIndex = dayIndex === 0 ? 6 : dayIndex - 1; // Map Sun to 6, Mon to 0
+    return !stf.avail[availIndex];
+  };
+
+  const isSlotDisabled = (t) => {
+    if (!selDate) return true;
+    if (isOffDay(selDate)) return true;
+    return busySlots.includes(t);
+  };
+
   return (
     <div className="se">
       <h2 className="sh">Pick a Date & Time</h2>
@@ -130,16 +208,24 @@ function S3({ selDate, selTime, onDate, onTime }) {
             AVAILABLE TIMES
           </div>
           <div className="tg">
-            {TIMES.map(t => (
-              <div
-                key={t}
-                className={`ts${BOOKED.includes(t) ? " tbk" : ""}${selTime === t ? " tsel" : ""}`}
-                onClick={() => !BOOKED.includes(t) && onTime(t)}
-              >
-                {t}
-                {BOOKED.includes(t) ? " ✕" : ""}
+            {isOffDay(selDate || new Date()) && selDate && (
+              <div style={{ gridColumn: "1/-1", padding: 20, textAlign: "center", color: "var(--red)", fontSize: 13, fontWeight: 600 }}>
+                Specialist is not available on this day
               </div>
-            ))}
+            )}
+            {TIMES.map(t => {
+              const disabled = isSlotDisabled(t);
+              return (
+                <div
+                  key={t}
+                  className={`ts${disabled ? " tbk" : ""}${selTime === t ? " tsel" : ""}`}
+                  onClick={() => !disabled && onTime(t)}
+                >
+                  {t}
+                  {disabled ? (busySlots.includes(t) ? " ✕" : " Off") : ""}
+                </div>
+              );
+            })}
           </div>
           {selDate && selTime && (
             <div className="glass" style={{ padding: 13, marginTop: 11, borderColor: "var(--border-red)" }}>
@@ -416,7 +502,7 @@ function S7({ svc, stf, date, time, booking, onDash, onRebook }) {
   );
 }
 
-export default function BookingForm({ user, onNeedAuth, services, staff, onCreateBooking, onGoDash }) {
+export default function BookingForm({ user, onNeedAuth, services, staff, bookings, onCreateBooking, onGoDash }) {
   const [step, setStep] = useState(0);
   const [svc, setSvc] = useState(null);
   const [stf, setStf] = useState(null);
@@ -424,6 +510,7 @@ export default function BookingForm({ user, onNeedAuth, services, staff, onCreat
   const [time, setTime] = useState(null);
   const [det, setDet] = useState({});
   const [createdBooking, setCreatedBooking] = useState(null);
+  const [selectedStaff, setSelectedStaff] = useState(null);
 
   const canNext = () => {
     if (step === 0) return !!svc;
@@ -477,8 +564,8 @@ export default function BookingForm({ user, onNeedAuth, services, staff, onCreat
       <Progress step={step} />
       <div>
         {step === 0 && <S1 sel={svc} onSel={handleSvcSel} services={services} />}
-        {step === 1 && <S2 sel={stf} onSel={setStf} staff={staff} svcId={svc?.id} />}
-        {step === 2 && <S3 selDate={date} selTime={time} onDate={setDate} onTime={setTime} />}
+        {step === 1 && <S2 sel={stf} onSel={setStf} staff={staff} svcId={svc?.id} onDetails={setSelectedStaff} />}
+        {step === 2 && <S3 selDate={date} selTime={time} onDate={setDate} onTime={setTime} bookings={bookings} stf={stf} />}
         {step === 3 && <S4 det={det} onChange={setDet} user={user} />}
         {step === 4 && <S5 svc={svc} stf={stf} date={date} time={time} />}
         {step === 5 && <S6 svc={svc} onSuccess={createBooking} />}
@@ -486,6 +573,9 @@ export default function BookingForm({ user, onNeedAuth, services, staff, onCreat
           <S7 svc={svc} stf={stf} date={date} time={time} booking={createdBooking} onDash={onGoDash} onRebook={reset} />
         )}
       </div>
+      {selectedStaff && (
+        <StaffDetailsModal member={selectedStaff} onClose={() => setSelectedStaff(null)} />
+      )}
       {step < 6 && (
         <div className="bfoot">
           <button className="btn btn-g btn-sm" onClick={back} disabled={step === 0}>

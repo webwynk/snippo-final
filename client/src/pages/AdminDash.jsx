@@ -3,6 +3,9 @@ import Toasts, { useToast } from "../components/Shared/Toasts";
 import Confirm from "../components/Shared/Confirm";
 import { apiRequest } from "../utils/api";
 import { DAYS, COLORS, initials, fmtDur } from "../utils/helpers";
+import Pagination from "../components/Shared/Pagination";
+
+
 
 function ServiceModal({ svc, onSave, onClose, services: _ }) {
   const [f, setF] = useState(svc || { name: "", desc: "", price: "", dur: "60", img: "", active: true });
@@ -175,8 +178,8 @@ function StaffModal({ member, services, onSave, onClose }) {
 function BookingDetailModal({ booking, onClose, onStatusChange }) {
   const bmap = { upcoming: "bu", completed: "bc", cancelled: "bx", active: "ba" };
   const hasExtension = (booking.additionalHours || 0) > 0;
-  const originalDur = booking.originalDuration ? parseInt(booking.originalDuration) : null;
-  const totalDur = originalDur ? originalDur + (booking.additionalHours || 0) * 60 : null;
+  const originalDur = booking.originalDuration ? parseInt(booking.originalDuration) : 60;
+  const totalDur = originalDur + (booking.additionalHours || 0) * 60;
   return (
     <div className="mov" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -261,20 +264,38 @@ export default function AdminDash({ services, setServices, staff, setStaff, book
   const [bDetail, setBDetail] = useState(null);
   const [bFilter, setBFilter] = useState("all");
   const [copied, setCopied] = useState(false);
+  const [pages, setPages] = useState({ bookings: 1, staff: 1, users: 1 });
+  const [curPages, setCurPages] = useState({ bookings: 1, staff: 1, users: 1 });
+  const [users, setUsers] = useState([]);
   const { toasts, toast } = useToast();
   const bmap = { upcoming: "bu", completed: "bc", cancelled: "bx", active: "ba" };
   const filtered = bookings.filter(b => bFilter === "all" || b.s === bFilter);
-  const todayKey = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  const todayKey = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/New_York" });
   const todayBookings = bookings.filter(b => b.dt.includes(todayKey));
   const iframeCode = `<iframe src="${embedUrl}" width="100%" height="900" style="border:0;max-width:100%;" loading="lazy" title="Snippo Entertainment Booking"></iframe>`;
 
-  const reloadAdminData = async () => {
-    const data = await apiRequest("/admin/data", { token });
+  const reloadAdminData = async (targetTab, pageNum = 1) => {
+    const query = new URLSearchParams({ tab: targetTab || sec, page: pageNum, limit: 10 });
+    const data = await apiRequest(`/admin/data?${query}`, { token });
     setServices(data.services || []);
     setStaff(data.staff || []);
-    setBookings(data.bookings || []);
     setPendingStaff(data.pendingStaff || []);
+    
+    if (data.data) {
+      if (sec === "bookings") setBookings(data.data);
+      if (sec === "staff") setStaff(data.data);
+      if (sec === "users") setUsers(data.data);
+      setPages(p => ({ ...p, [sec]: data.pages }));
+    } else {
+      setBookings(data.bookings || []);
+    }
   };
+
+  useEffect(() => {
+    if (["bookings", "staff", "users"].includes(sec)) {
+      reloadAdminData(sec, curPages[sec]);
+    }
+  }, [sec, curPages]);
 
   const saveSvc = async f => {
     try {
@@ -415,6 +436,18 @@ export default function AdminDash({ services, setServices, staff, setStaff, book
       l: "Staff",
     },
     {
+      id: "users",
+      icon: (
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+          <circle cx="9" cy="7" r="4"></circle>
+          <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+          <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+        </svg>
+      ),
+      l: "Users",
+    },
+    {
       id: "approvals",
       icon: (
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -505,7 +538,14 @@ export default function AdminDash({ services, setServices, staff, setStaff, book
                       <td>{b.svc}</td>
                       <td style={{ color: "var(--muted)" }}>{b.stf}</td>
                       <td>{b.t}</td>
-                      <td style={{ fontWeight: 700 }}>{b.p}</td>
+                      <td style={{ fontWeight: 700 }}>
+                        {b.p}
+                        {(b.additionalHours || 0) > 0 && (
+                          <div style={{ fontSize: 10, color: "var(--red)", marginTop: 2 }}>
+                            +{b.additionalHours}h Extra
+                          </div>
+                        )}
+                      </td>
                       <td>
                         <span className={`badge ${bmap[b.s]}`}>{b.s[0].toUpperCase() + b.s.slice(1)}</span>
                       </td>
@@ -543,21 +583,28 @@ export default function AdminDash({ services, setServices, staff, setStaff, book
                   </tr>
                 </thead>
                 <tbody>
-                  {filtered.length === 0 ? (
+                  {bookings.length === 0 ? (
                     <tr>
                       <td colSpan={7} style={{ textAlign: "center", color: "var(--muted)", padding: 28 }}>
                         No bookings
                       </td>
                     </tr>
                   ) : (
-                    filtered.map(b => (
+                    bookings.map(b => (
                       <tr key={b.id} style={{ cursor: "pointer" }} onClick={() => setBDetail(b)}>
                         <td style={{ fontFamily: "monospace", color: "var(--muted)", fontSize: 11 }}>{b.id}</td>
                         <td style={{ fontWeight: 600 }}>{b.u}</td>
                         <td>{b.svc}</td>
                         <td style={{ color: "var(--muted)" }}>{b.stf}</td>
                         <td style={{ color: "var(--muted)", whiteSpace: "nowrap" }}>{b.dt}</td>
-                        <td style={{ fontWeight: 700 }}>{b.p}</td>
+                        <td style={{ fontWeight: 700 }}>
+                          {b.p}
+                          {(b.additionalHours || 0) > 0 && (
+                            <div style={{ fontSize: 10, color: "var(--red)", marginTop: 2 }}>
+                              +{b.additionalHours}h Extra
+                            </div>
+                          )}
+                        </td>
                         <td>
                           <span className={`badge ${bmap[b.s]}`}>{b.s[0].toUpperCase() + b.s.slice(1)}</span>
                         </td>
@@ -567,6 +614,7 @@ export default function AdminDash({ services, setServices, staff, setStaff, book
                 </tbody>
               </table>
             </div>
+            <Pagination current={curPages.bookings} total={pages.bookings} onPage={p => setCurPages(cp => ({ ...cp, bookings: p }))} />
           </>
         )}
 
@@ -648,39 +696,103 @@ export default function AdminDash({ services, setServices, staff, setStaff, book
                 + Add Staff
               </button>
             </div>
-            <div className="g2">
-              {staff
-                .filter(s => s.active)
-                .map(s => (
-                  <div key={s.id} className="glass" style={{ padding: "clamp(13px,3vw,18px)" }}>
-                    <div style={{ display: "flex", gap: 11, alignItems: "flex-start" }}>
-                      <div className="avt" style={{ background: `linear-gradient(135deg,${s.c},rgba(0,0,0,.3))`, width: 44, height: 44, fontSize: 15, flexShrink: 0 }}>
-                        {s.i}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 2, flexWrap: "wrap" }}>
-                          <span style={{ fontWeight: 700, fontSize: 13 }}>{s.name}</span>
-                          <span className="badge bu" style={{ fontSize: 10 }}>
-                            Active
-                          </span>
-                        </div>
-                        <div style={{ color: "var(--muted)", fontSize: 12, marginBottom: 5 }}>{s.role}</div>
-                      </div>
-                      <div style={{ display: "flex", gap: 5, flexShrink: 0 }}>
-                        <button className="btn btn-g btn-sm" onClick={() => setStaffModal(s)}>
-                          Edit
-                        </button>
-                        <button className="btn btn-danger btn-sm" onClick={() => setDelConfirm({ type: "staff", id: s.id, name: s.name })}>
-                          X
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
+            <div className="glass tw">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Staff Name</th>
+                    <th>Role</th>
+                    <th>Services</th>
+                    <th style={{ textAlign: "right" }}>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {staff.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ textAlign: "center", color: "var(--muted)", padding: 28 }}>
+                        No staff members found
+                      </td>
+                    </tr>
+                  ) : (
+                    staff.map(s => (
+                      <tr key={s.id}>
+                        <td style={{ display: "flex", alignItems: "center", gap: 9 }}>
+                          <div className="iava" style={{ background: s.c }}>
+                            {s.i}
+                          </div>
+                          <div style={{ fontWeight: 600 }}>{s.name}</div>
+                        </td>
+                        <td>{s.role}</td>
+                        <td>
+                          <div style={{ display: "flex", gap: 3, flexWrap: "wrap", maxWidth: 200 }}>
+                            {s.services.map(id => {
+                              const srv = services.find(x => x.id === id);
+                              return (
+                                <span key={id} style={{ background: "rgba(255,255,255,.05)", borderRadius: 5, padding: "2px 5px", fontSize: 10 }}>
+                                  {srv?.name || "..."}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </td>
+                        <td style={{ textAlign: "right" }}>
+                          <button className="btn btn-g btn-sm" style={{ marginRight: 6 }} onClick={() => setStaffModal(s)}>
+                            Edit
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
             </div>
+            <Pagination current={curPages.staff} total={pages.staff} onPage={p => setCurPages(cp => ({ ...cp, staff: p }))} />
           </>
         )}
 
+        {sec === "users" && (
+          <>
+            <h1 className="sh">Registered Users</h1>
+            <p className="ss">Complete user database</p>
+            <div className="glass tw">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {users.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: "center", color: "var(--muted)", padding: 28 }}>
+                        No users found
+                      </td>
+                    </tr>
+                  ) : (
+                    users.map(u => (
+                      <tr key={u.id}>
+                        <td style={{ fontFamily: "monospace", color: "var(--muted)", fontSize: 11 }}>{u.id}</td>
+                        <td style={{ fontWeight: 600 }}>{u.name}</td>
+                        <td>{u.email}</td>
+                        <td>
+                          <span className={`badge ${u.role === "admin" ? "bu" : "ba"}`}>{u.role}</span>
+                        </td>
+                        <td>
+                          <span style={{ color: u.status === "active" ? "var(--success)" : "var(--muted)" }}>● {u.status}</span>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <Pagination current={curPages.users} total={pages.users} onPage={p => setCurPages(cp => ({ ...cp, users: p }))} />
+          </>
+        )}
         {sec === "approvals" && (
           <>
             <h1 className="sh">Staff Approvals</h1>

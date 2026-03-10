@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import Toasts, { useToast } from "../components/Shared/Toasts";
 import { apiRequest } from "../utils/api";
+import Pagination from "../components/Shared/Pagination";
 
-function UserBookingDetailModal({ booking, onClose }) {
+function UserBookingDetailModal({ booking, onClose, onExtend }) {
   const bmap = { upcoming: "bu", completed: "bc", cancelled: "bx", active: "ba" };
   const hasExtension = (booking.additionalHours || 0) > 0;
-  const originalDur = booking.originalDuration ? parseInt(booking.originalDuration) : null;
-  const totalDur = originalDur ? originalDur + (booking.additionalHours || 0) * 60 : null;
+  const originalDur = booking.originalDuration ? parseInt(booking.originalDuration) : 60;
+  const totalDur = originalDur + (booking.additionalHours || 0) * 60;
   return (
     <div className="mov" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal">
@@ -79,6 +80,40 @@ function UserBookingDetailModal({ booking, onClose }) {
             </div>
           </>
         )}
+
+        {/* Extension Action */}
+        {(() => {
+          const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
+          const isToday = booking.dt === today && ["upcoming", "active"].includes(booking.s);
+          const maxLeft = 4 - (booking.additionalHours || 0);
+          
+          if (!isToday && ["upcoming", "active"].includes(booking.s)) {
+            return (
+              <div style={{ marginTop: 16, textAlign: "center", fontSize: 11, color: "var(--muted2)" }}>
+                💡 You can extend this booking for the same date only.
+              </div>
+            );
+          }
+
+          if (isToday && maxLeft > 0) {
+            return (
+              <div style={{ marginTop: 16 }}>
+                <button 
+                  className="btn btn-p" 
+                  style={{ width: "100%", padding: "12px 14px" }}
+                  onClick={() => onExtend?.(booking)}
+                >
+                  ⚡ Add Extra Hours
+                </button>
+                <div style={{ marginTop: 8, textAlign: "center", fontSize: 11, color: "var(--muted2)" }}>
+                  You can extend this booking for the same date only.
+                </div>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
         <button className="btn btn-g" style={{ width: "100%", marginTop: 16 }} onClick={onClose}>
           Close
         </button>
@@ -86,6 +121,171 @@ function UserBookingDetailModal({ booking, onClose }) {
     </div>
   );
 }
+
+function ExtensionModal({ b, onClose, onUpdated, token, toast }) {
+  const [selHours, setSelHours] = useState(0);
+  const [extending, setExtending] = useState(false);
+  const [extErr, setExtErr] = useState("");
+  const [card, setCard] = useState({ num: "", exp: "", cvc: "" });
+  
+  const currentExtra = b.additionalHours || 0;
+  const maxLeft = 4 - currentExtra;
+  const options = [1, 2, 3, 4].filter(h => h <= maxLeft);
+  
+  const originalDur = b.originalDuration ? parseInt(b.originalDuration) : 60;
+  const currentDur = originalDur + currentExtra * 60;
+  const predictedDur = currentDur + selHours * 60;
+
+  const handleConfirm = async () => {
+    if (!selHours) {
+      setExtErr("Please select additional hours");
+      return;
+    }
+    if (card.num.replace(/\s/g, "").length < 16) {
+      setExtErr("Enter a valid 16-digit card number");
+      return;
+    }
+    if (!card.exp.match(/^\d{2}\/\d{2}$/)) {
+      setExtErr("Invalid expiry — use MM/YY");
+      return;
+    }
+    if (card.cvc.length < 3) {
+      setExtErr("Enter a valid CVC");
+      return;
+    }
+
+    setExtending(true);
+    setExtErr("");
+    await new Promise(r => setTimeout(r, 800)); // Simulate processing
+    try {
+      const updated = await apiRequest(`/bookings/${b.id}/extend`, { 
+        method: "PATCH", 
+        token, 
+        body: { additionalHours: selHours } 
+      });
+      onUpdated(updated);
+      toast(`Booking extended by ${selHours} hour${selHours > 1 ? "s" : ""}!`, "success");
+      onClose();
+    } catch (e) {
+      setExtErr(e.message || "Extension failed");
+    } finally {
+      setExtending(false);
+    }
+  };
+
+  return (
+    <div className="mov" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal" style={{ maxWidth: 440 }}>
+        <button
+          onClick={onClose}
+          style={{ position: "absolute", top: 11, right: 11, background: "none", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 19, width: 32, height: 32, borderRadius: 7, display: "flex", alignItems: "center", justifyContent: "center" }}
+        >
+          ✕
+        </button>
+        <div style={{ fontWeight: 800, fontSize: 19, marginBottom: 4, letterSpacing: "-.02em" }}>Extend Appointment</div>
+        <div style={{ fontSize: 13, color: "var(--muted)", marginBottom: 18 }}>
+          Booking Date: <strong>{b.dt}</strong> · Current: {currentDur} min
+        </div>
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: ".07em", marginBottom: 10 }}>
+          SELECT ADDITIONAL HOURS
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 20 }}>
+          {options.map(h => (
+            <div
+              key={h}
+              onClick={() => setSelHours(h)}
+              style={{
+                padding: "12px",
+                borderRadius: 12,
+                cursor: "pointer",
+                border: `2px solid ${selHours === h ? "var(--red)" : "var(--border)"}`,
+                background: selHours === h ? "rgba(230,57,70,0.05)" : "var(--glass)",
+                transition: "all .2s",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center"
+              }}
+            >
+              <div style={{ fontSize: 16, fontWeight: 800, color: selHours === h ? "var(--red)" : "var(--text)" }}>{h} Hour{h > 1 ? "s" : ""}</div>
+              <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 2 }}>+${h * 60}</div>
+            </div>
+          ))}
+        </div>
+
+        {selHours > 0 && (
+          <div className="glass" style={{ padding: 16, borderRadius: 14, marginBottom: 20, borderColor: "var(--border-red)" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6, fontSize: 13 }}>
+              <span style={{ color: "var(--muted)" }}>Total Duration After Extension</span>
+              <span style={{ fontWeight: 800 }}>{predictedDur} Minutes</span>
+            </div>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13 }}>
+              <span style={{ color: "var(--muted)" }}>Additional Cost</span>
+              <span style={{ fontWeight: 800, color: "var(--red)" }}>${selHours * 60}</span>
+            </div>
+          </div>
+        )}
+
+        <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: ".07em", marginBottom: 10 }}>
+          PAYMENT DETAILS
+        </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+          <input 
+            className="sinp" 
+            placeholder="Card Number (4242 4242...)" 
+            value={card.num} 
+            onChange={e => setCard({...card, num: e.target.value.replace(/\D/g,"").replace(/(.{4})/g,"$1 ").trim()})} 
+            maxLength={19}
+          />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+            <input 
+              className="sinp" 
+              placeholder="MM/YY" 
+              value={card.exp} 
+              onChange={e => {
+                let v = e.target.value.replace(/\D/g, "");
+                if (v.length >= 3) v = v.slice(0, 2) + "/" + v.slice(2, 4);
+                setCard({ ...card, exp: v });
+              }}
+              maxLength={5}
+            />
+            <input 
+              className="sinp" 
+              placeholder="CVC" 
+              type="password"
+              value={card.cvc} 
+              onChange={e => setCard({ ...card, cvc: e.target.value.replace(/\D/g, "") })}
+              maxLength={4}
+            />
+          </div>
+        </div>
+
+        {extErr && (
+          <div style={{ padding: "10px 12px", background: "rgba(230,57,70,0.1)", borderRadius: 10, fontSize: 12, color: "var(--red)", marginBottom: 16, border: "1px solid rgba(230,57,70,0.2)" }}>
+            ⚠ {extErr}
+          </div>
+        )}
+
+        <div style={{ display: "flex", gap: 10 }}>
+          <button className="btn btn-g" style={{ flex: 1 }} onClick={onClose}>Cancel</button>
+          <button 
+            className="btn btn-p" 
+            style={{ flex: 2 }} 
+            onClick={handleConfirm}
+            disabled={extending || !selHours}
+          >
+            {extending ? "Processing..." : `Confirm Extension · $${selHours * 60}`}
+          </button>
+        </div>
+        <div style={{ marginTop: 12, textAlign: "center", fontSize: 11, color: "var(--muted2)" }}>
+           Extensions are only allowed on the same booking date.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 
 export default function UserDash({ user, onSignOut, bookings, services, staff, onGoHome, token, onUserUpdated, initialTab = "bookings", embedded = false, embedHeader = null, onTabChange, setBookings }) {
   const [tab, setTab] = useState(initialTab);
@@ -96,14 +296,32 @@ export default function UserDash({ user, onSignOut, bookings, services, staff, o
   const [prof, setProf] = useState({ name: user?.name || "", email: user?.email || "", phone: user?.phone || "" });
   const [saved, setSaved] = useState({ ...prof });
   const [settings, setSettings] = useState({ email: true, sms: false, marketing: false });
-  const { toasts, toast } = useToast();
   const [bDetail, setBDetail] = useState(null);
+  const [extBooking, setExtBooking] = useState(null);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [userBookings, setUserBookings] = useState([]);
+  const { toasts, toast } = useToast();
+
+  const loadBookings = async () => {
+    try {
+      const res = await apiRequest(`/bookings?page=${page}&limit=10`, { token });
+      setUserBookings(res.data || []);
+      setTotalPages(res.pages || 1);
+    } catch (e) {
+      toast(e.message || "Failed to load bookings", "error");
+    }
+  };
+
+  useEffect(() => {
+    loadBookings();
+  }, [page]);
 
   useEffect(() => {
     setTab(initialTab || "bookings");
   }, [initialTab]);
 
-  const myBookings = bookings.filter(b => b.userId === user?.id);
+  const myBookings = userBookings;
   const bmap = { upcoming: "bu", completed: "bc", cancelled: "bx", active: "ba" };
 
   const nav = [
@@ -404,40 +622,7 @@ export default function UserDash({ user, onSignOut, bookings, services, staff, o
               {embedded ? "Back to Booking Form" : "Book New Appointment"}
             </button>
 
-            {(() => {
-              const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-              const todayBookings = myBookings.filter(b => b.dt === today && ["upcoming", "active"].includes(b.s));
-              if (todayBookings.length === 0) return null;
-              return (
-                <div className="glass" style={{ padding: "clamp(14px,3vw,22px)", marginBottom: 20, borderColor: "rgba(230,57,70,.3)" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 14 }}>
-                    <div
-                      style={{
-                        width: 34,
-                        height: 34,
-                        borderRadius: 10,
-                        background: "var(--red-dim)",
-                        border: "1px solid var(--border-red)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        fontSize: 16,
-                        flexShrink: 0,
-                      }}
-                    >
-                      ⏱
-                    </div>
-                    <div>
-                      <div style={{ fontWeight: 800, fontSize: 15, letterSpacing: "-.02em" }}>Extend Booking Duration</div>
-                      <div style={{ fontSize: 12, color: "var(--muted)" }}>Add extra hours to your booking today · $60/hour</div>
-                    </div>
-                  </div>
-                  {todayBookings.map(b => (
-                    <ExtendCard key={b.id} b={b} />
-                  ))}
-                </div>
-              );
-            })()}
+
 
             {myBookings.length === 0 ? (
               <div className="glass" style={{ padding: 40, textAlign: "center" }}>
@@ -470,9 +655,28 @@ export default function UserDash({ user, onSignOut, bookings, services, staff, o
                           <td style={{ fontWeight: 700 }}>{b.p}</td>
                           <td>
                             {(b.additionalHours || 0) > 0 ? (
-                              <span style={{ color: "var(--red)", fontWeight: 700 }}>+{b.additionalHours}h</span>
+                              <span style={{ color: "var(--red)", fontWeight: 700 }}>+{b.additionalHours}h Extra</span>
                             ) : (
-                              <span style={{ color: "var(--muted2)" }}>—</span>
+                              (() => {
+                                const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" });
+                                const isToday = b.dt === today && ["upcoming", "active"].includes(b.s);
+                                const maxLeft = 4 - (b.additionalHours || 0);
+                                if (isToday && maxLeft > 0) {
+                                  return (
+                                    <button 
+                                      className="btn btn-p btn-sm" 
+                                      style={{ padding: "4px 8px", fontSize: 10, background: "linear-gradient(135deg, #E63946, #d62839)" }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setExtBooking(b);
+                                      }}
+                                    >
+                                      ⚡ Add Extra Hours
+                                    </button>
+                                  );
+                                }
+                                return <span style={{ color: "var(--muted2)" }}>—</span>;
+                              })()
                             )}
                           </td>
                           <td>
@@ -483,11 +687,23 @@ export default function UserDash({ user, onSignOut, bookings, services, staff, o
                     </tbody>
                   </table>
                 </div>
+                <Pagination current={page} total={totalPages} onPage={setPage} />
               </>
             )}
-            {bDetail && <UserBookingDetailModal booking={bDetail} onClose={() => setBDetail(null)} />}
+            {bDetail && <UserBookingDetailModal booking={bDetail} onClose={() => setBDetail(null)} onExtend={setExtBooking} />}
+            {extBooking && (
+              <ExtensionModal 
+                b={extBooking} 
+                onClose={() => setExtBooking(null)} 
+                onUpdated={(upd) => setBookings?.(p => p.map(bk => bk.id === upd.id ? { ...bk, ...upd } : bk))}
+                token={token}
+                toast={toast}
+              />
+            )}
           </>
         )}
+
+
 
         {tab === "profile" && (
           <>

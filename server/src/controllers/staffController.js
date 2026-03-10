@@ -83,6 +83,10 @@ export const updateStaffProfile = asyncHandler(async (req, res) => {
   const name = String(req.body?.name || "").trim();
   const role = String(req.body?.role || "").trim();
   const email = normalizeEmail(req.body?.email);
+  const profileImage = String(req.body?.profileImage || "").trim();
+  const experience = String(req.body?.experience || "").trim();
+  const totalWorkDone = parseInt(req.body?.totalWorkDone || 0, 10) || 0;
+  const bio = String(req.body?.bio || "").trim();
 
   if (!name) throw httpError(400, "Name is required");
   if (!role) throw httpError(400, "Role is required");
@@ -117,6 +121,10 @@ export const updateStaffProfile = asyncHandler(async (req, res) => {
     staffRef.role = role;
     staffRef.email = email;
     staffRef.i = initials(name);
+    staffRef.profileImage = profileImage;
+    staffRef.experience = experience;
+    staffRef.totalWorkDone = totalWorkDone;
+    staffRef.bio = bio;
 
     user.name = name;
     user.email = email;

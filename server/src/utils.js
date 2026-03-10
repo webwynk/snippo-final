@@ -34,7 +34,7 @@ export function formatDateForUi(dateInput) {
     month: "short",
     day: "numeric",
     year: "numeric",
-    timeZone: "UTC",
+    timeZone: "America/New_York",
   });
 }
 

@@ -4,6 +4,9 @@ import { asyncHandler, httpError } from "../utils/errorHelpers.js";
 import { resolveStaffForUser } from "../utils/userHelpers.js";
 
 export const getBookings = asyncHandler(async (req, res) => {
+  const page = parseInt(req.query.page || "1");
+  const limit = parseInt(req.query.limit || "10");
+  
   const data = await readData();
   const user = data.users.find((item) => item.id === req.authUser.id);
 
@@ -12,21 +15,25 @@ export const getBookings = asyncHandler(async (req, res) => {
   }
 
   if (user.role === "admin") {
-    res.json(data.bookings);
+    const paged = await getPagedBookings({ page, limit });
+    res.json(paged);
     return;
   }
 
   if (user.role === "user") {
-    res.json(data.bookings.filter((booking) => booking.userId === user.id));
+    const paged = await getPagedBookings({ userId: user.id, page, limit });
+    res.json(paged);
     return;
   }
 
   const staffRef = resolveStaffForUser(data, user);
   if (!staffRef) {
-    res.json([]);
+    res.json({ data: [], total: 0, pages: 0, currentPage: page });
     return;
   }
-  res.json(data.bookings.filter((booking) => booking.stf === staffRef.name));
+  
+  const paged = await getPagedBookings({ staffName: staffRef.name, page, limit });
+  res.json(paged);
 });
 
 export const createBooking = asyncHandler(async (req, res) => {
@@ -89,6 +96,7 @@ export const createBooking = asyncHandler(async (req, res) => {
       staffId: staffMember.id,
       notes: String(details?.notes || "").trim(),
       createdAt: new Date().toISOString(),
+      originalDuration: String(service.dur || "60"),
     };
 
     data.bookings.push(createdBooking);
@@ -112,8 +120,10 @@ export const extendBooking = asyncHandler(async (req, res) => {
     if (!booking) throw httpError(404, "Booking not found");
     if (booking.userId !== req.authUser.id) throw httpError(403, "Forbidden");
 
-    const today = new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-    if (booking.dt !== today) throw httpError(400, "Can only extend bookings for today");
+    const today = formatDateForUi(new Date());
+    if (booking.dt !== today) {
+      throw httpError(400, "Extensions are only allowed on the appointment date.");
+    }
 
     const currentExtra = booking.additionalHours || 0;
     if (currentExtra + extraHours > 4) {
@@ -124,13 +134,14 @@ export const extendBooking = asyncHandler(async (req, res) => {
     const originalDur = parseInt(booking.originalDuration || service?.dur || "60");
 
     const newAdditionalHours = currentExtra + extraHours;
-    const newAdditionalCost = newAdditionalHours * 60;
+    const newAdditionalCost = newAdditionalHours * 60; // $60 per hour
 
     booking.additionalHours = newAdditionalHours;
     booking.additionalCost = newAdditionalCost;
     booking.originalDuration = booking.originalDuration || String(originalDur);
     booking.dur = String(originalDur + newAdditionalHours * 60);
 
+    console.log(`[notification] Booking ${id} extended by ${extraHours}h. Staff: ${booking.stf}`);
     updated = { ...booking };
   });
 

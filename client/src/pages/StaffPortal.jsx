@@ -1,7 +1,8 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import Toasts, { useToast } from "../components/Shared/Toasts";
 import { apiRequest } from "../utils/api";
 import { DAYS, initials } from "../utils/helpers";
+import { uploadStaffAvatar } from "../utils/supabase";
 
 export default function StaffPortal({ staffUser, allStaff, setAllStaff, bookings, services, onSignOut, token, initialTab = 'schedule', onTabChange }) {
   const me = allStaff.find(s => s.email === staffUser?.email) || staffUser?.staffData || staffUser?.staffRef;
@@ -11,10 +12,20 @@ export default function StaffPortal({ staffUser, allStaff, setAllStaff, bookings
   useEffect(() => { setTab(initialTab); }, [initialTab]);
 
   const changeTab = t => { setTab(t); onTabChange?.(t); };
-  const [prof, setProf] = useState({ name: me?.name || staffUser?.name || "", role: me?.role || "", email: me?.email || staffUser?.email || "" });
+  const [prof, setProf] = useState({
+    name: me?.name || staffUser?.name || "",
+    role: me?.role || "",
+    email: me?.email || staffUser?.email || "",
+    profileImage: me?.profileImage || "",
+    experience: me?.experience || "",
+    totalWorkDone: me?.totalWorkDone || 0,
+    bio: me?.bio || "",
+  });
   const [saved, setSaved] = useState({ ...prof });
   const [avail, setAvail] = useState(me?.avail || [true, true, true, true, true, false, false]);
   const [myServices, setMyServices] = useState(me?.services || []);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
   const { toasts, toast } = useToast();
   const myBookings = bookings.filter(b => b.stf === me?.name || b.stf === staffUser?.name);
   const bmap = { upcoming: "bu", completed: "bc", cancelled: "bx", active: "ba" };
@@ -87,6 +98,21 @@ export default function StaffPortal({ staffUser, allStaff, setAllStaff, bookings
     }
   };
 
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const url = await uploadStaffAvatar(file, me?.id || "staff");
+      setProf(p => ({ ...p, profileImage: url }));
+      toast("Image uploaded!", "success");
+    } catch (err) {
+      toast(err.message || "Upload failed", "error");
+    } finally {
+      setUploading(false);
+    }
+  };
+
   if (isPending) {
     return (
       <div className="pending-wrap">
@@ -122,9 +148,16 @@ export default function StaffPortal({ staffUser, allStaff, setAllStaff, bookings
     <div className="dash">
       <div className="sidebar">
         <div style={{ padding: "9px 10px 13px", borderBottom: "1px solid var(--border)", marginBottom: 7 }}>
-          <div className="avt" style={{ background: `linear-gradient(135deg,${me?.c || "#7c3aed"},rgba(0,0,0,.3))`, width: 36, height: 36, fontSize: 13, marginBottom: 7 }}>
-            {me?.i || initials(saved.name)}
-          </div>
+          {/* Sidebar avatar: show uploaded image or initials */}
+          {saved.profileImage ? (
+            <div style={{ width: 36, height: 36, borderRadius: "50%", overflow: "hidden", marginBottom: 7 }}>
+              <img src={saved.profileImage} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+            </div>
+          ) : (
+            <div className="avt" style={{ background: `linear-gradient(135deg,${me?.c || "#7c3aed"},rgba(0,0,0,.3))`, width: 36, height: 36, fontSize: 13, marginBottom: 7 }}>
+              {me?.i || initials(saved.name)}
+            </div>
+          )}
           <div style={{ fontSize: 13, fontWeight: 700 }}>{saved.name}</div>
           <div style={{ fontSize: 11, color: "var(--muted)" }}>{saved.role}</div>
         </div>
@@ -263,35 +296,152 @@ export default function StaffPortal({ staffUser, allStaff, setAllStaff, bookings
           <>
             <h1 className="sh">My Profile</h1>
             <p className="ss">Update your public profile</p>
-            <div className="glass" style={{ padding: "clamp(13px,3vw,22px)", maxWidth: 420 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 11, marginBottom: 18, paddingBottom: 14, borderBottom: "1px solid var(--border)", flexWrap: "wrap" }}>
-                <div className="avt" style={{ background: `linear-gradient(135deg,${me?.c || "#7c3aed"},rgba(0,0,0,.3))`, width: 48, height: 48, fontSize: 17, flexShrink: 0 }}>
-                  {me?.i || initials(saved.name)}
+            <div className="glass" style={{ padding: "clamp(13px,3vw,22px)", maxWidth: 460 }}>
+
+              {/* ── Avatar upload section ── */}
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginBottom: 22, paddingBottom: 18, borderBottom: "1px solid var(--border)", gap: 10 }}>
+                <div
+                  onClick={() => !uploading && fileInputRef.current?.click()}
+                  title="Click to upload profile image"
+                  style={{
+                    width: 88,
+                    height: 88,
+                    borderRadius: "50%",
+                    overflow: "hidden",
+                    background: prof.profileImage
+                      ? "transparent"
+                      : `linear-gradient(135deg,${me?.c || "#7c3aed"},rgba(0,0,0,.3))`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 30,
+                    fontWeight: 800,
+                    cursor: "pointer",
+                    border: "2.5px dashed rgba(255,255,255,.18)",
+                    position: "relative",
+                    transition: "opacity .15s",
+                    opacity: uploading ? 0.6 : 1,
+                  }}
+                >
+                  {prof.profileImage ? (
+                    <img src={prof.profileImage} alt="avatar" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                  ) : (
+                    me?.i || initials(prof.name)
+                  )}
+                  {/* Hover overlay */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      borderRadius: "50%",
+                      background: "rgba(0,0,0,.45)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 20,
+                      opacity: 0,
+                      transition: "opacity .15s",
+                    }}
+                    className="avatar-overlay"
+                  >
+                    📷
+                  </div>
                 </div>
-                <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  style={{ display: "none" }}
+                  onChange={handleAvatarUpload}
+                />
+                <div style={{ textAlign: "center" }}>
                   <div style={{ fontWeight: 700, fontSize: 14 }}>{saved.name}</div>
-                  <div style={{ fontSize: 11, color: "var(--muted)" }}>{saved.role}</div>
+                  <div style={{ fontSize: 11, color: "var(--muted)", marginBottom: 6 }}>{saved.role}</div>
+                  <button
+                    className="btn btn-g btn-sm"
+                    style={{ fontSize: 11, padding: "4px 12px" }}
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploading}
+                  >
+                    {uploading ? "Uploading…" : prof.profileImage ? "Change Photo" : "Upload Photo"}
+                  </button>
                 </div>
               </div>
+
+              {/* ── Form fields ── */}
               <div style={{ display: "flex", flexDirection: "column", gap: 11 }}>
-                {[
-                  { l: "FULL NAME", k: "name", t: "text" },
-                  { l: "DESIGNATION", k: "role", t: "text" },
-                  { l: "EMAIL", k: "email", t: "email" },
-                ].map(fi => (
-                  <div key={fi.k}>
-                    <label className="lbl">{fi.l}</label>
-                    <input className="inp" type={fi.t} value={prof[fi.k] || ""} onChange={e => setProf({ ...prof, [fi.k]: e.target.value })} />
-                  </div>
-                ))}
+                <div>
+                  <label className="lbl">FULL NAME</label>
+                  <input className="inp" type="text" value={prof.name || ""} onChange={e => setProf({ ...prof, name: e.target.value })} />
+                </div>
+                <div>
+                  <label className="lbl">DESIGNATION</label>
+                  <input className="inp" type="text" value={prof.role || ""} onChange={e => setProf({ ...prof, role: e.target.value })} />
+                </div>
+                <div>
+                  <label className="lbl">EMAIL</label>
+                  <input className="inp" type="email" value={prof.email || ""} onChange={e => setProf({ ...prof, email: e.target.value })} />
+                </div>
+
+                {/* Divider */}
+                <div style={{ borderTop: "1px solid var(--border)", paddingTop: 11 }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--muted)", letterSpacing: ".07em", marginBottom: 11 }}>PROFESSIONAL DETAILS</div>
+                </div>
+
+                <div>
+                  <label className="lbl">WORK EXPERIENCE</label>
+                  <input
+                    className="inp"
+                    type="text"
+                    placeholder="e.g. 5 Years Experience"
+                    value={prof.experience || ""}
+                    onChange={e => setProf({ ...prof, experience: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <label className="lbl">TOTAL WORK DONE (PROJECTS)</label>
+                  <input
+                    className="inp"
+                    type="number"
+                    min="0"
+                    placeholder="e.g. 120"
+                    value={prof.totalWorkDone || ""}
+                    onChange={e => setProf({ ...prof, totalWorkDone: parseInt(e.target.value, 10) || 0 })}
+                  />
+                </div>
+                <div>
+                  <label className="lbl">BIO</label>
+                  <textarea
+                    className="inp"
+                    rows={4}
+                    placeholder="Write a short professional description…"
+                    value={prof.bio || ""}
+                    onChange={e => setProf({ ...prof, bio: e.target.value })}
+                    style={{ resize: "vertical", minHeight: 90 }}
+                  />
+                </div>
+
                 <button
                   className="btn btn-p btn-sm"
                   style={{ marginTop: 4, alignSelf: "flex-start" }}
+                  disabled={uploading}
                   onClick={async () => {
                     try {
-                      const updated = await apiRequest("/staff/me/profile", { method: "PUT", token, body: prof });
-                      setSaved({ ...updated });
-                      setProf({ ...updated });
+                      const updated = await apiRequest("/staff/me/profile", {
+                        method: "PUT",
+                        token,
+                        body: {
+                          name: prof.name,
+                          role: prof.role,
+                          email: prof.email,
+                          profileImage: prof.profileImage,
+                          experience: prof.experience,
+                          totalWorkDone: prof.totalWorkDone,
+                          bio: prof.bio,
+                        },
+                      });
+                      setSaved({ ...prof, ...updated });
+                      setProf(p => ({ ...p, ...updated }));
                       if (me?.id) setAllStaff(p => p.map(s => (s.id === me.id ? { ...s, ...updated } : s)));
                       toast("Profile saved!", "success");
                     } catch (e) {
@@ -303,6 +453,12 @@ export default function StaffPortal({ staffUser, allStaff, setAllStaff, bookings
                 </button>
               </div>
             </div>
+
+            {/* Inline CSS for avatar hover overlay */}
+            <style>{`
+              .avatar-overlay { pointer-events: none; }
+              div:hover > .avatar-overlay { opacity: 1 !important; }
+            `}</style>
           </>
         )}
       </div>
